@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install --omit=dev
+
+      - name: Syntax check — all server files
+        run: |
+          node --check server/index.js
+          node --check server/gateway.js
+          node --check server/polymarket.js
+          node --check server/mirofish.js
+          node --check server/prices.js
+          node --check server/news.js
+          node --check server/wallet.js
+          node --check server/agents/AgentManager.js
+          echo "✓ All files pass syntax check"
+
+      - name: Check for secrets in code
+        run: |
+          if grep -rE "(ghp_|gho_|github_pat_|sk-[A-Za-z0-9]{20,})" \
+            server/ frontend/ --include="*.js" --include="*.html"; then
+            echo "Possible secret found in source files"
+            exit 1
+          fi
+          echo "✓ No secrets detected"
+
+      - name: Boot server and run API checks
+        run: |
+          node server/index.js &
+          SERVER_PID=$!
+
+          for i in $(seq 1 20); do
+            sleep 0.5
+            curl -s --max-time 1 http://localhost:3747/api/health > /dev/null 2>&1 && break
+          done
+
+          sleep 6
+
+          BASE="http://localhost:3747"
+          PASS=0; FAIL=0
+
+          chk() {
+            local label="$1" result="$2" pattern="$3"
+            if echo "$result" | grep -qF "$pattern"; then
+              echo "  ✓ $label"; PASS=$((PASS+1))
+            else
+              echo "  ✗ $label"; FAIL=$((FAIL+1))
+            fi
+          }
+
+          chk "Health ONLINE"       "$(curl -s $BASE/api/health)"       '"status":"ONLINE"'
+          chk "Version 2.2.0"       "$(curl -s $BASE/api/health)"       '"version":"2.2.0"'
+          chk "Markets loaded"      "$(curl -s $BASE/api/markets)"      '"question"'
+          chk "Predictions loaded"  "$(curl -s $BASE/api/predictions)"  '"signal"'
+          chk "News loaded"         "$(curl -s $BASE/api/news)"         '"category"'
+          chk "Prices loaded"       "$(curl -s $BASE/api/prices)"       '"formattedPrice"'
+          chk "Agents running"      "$(curl -s $BASE/api/agents)"       '"shortId"'
+          chk "Wallet works"        "$(curl -s -X POST $BASE/api/wallet -H 'Content-Type: application/json' -d '{}')" '"status"'
+          chk "Frontend served"     "$(curl -s $BASE/)"                 "AGENTIC CLAW"
+          chk "Agent room served"   "$(curl -s $BASE/agent-room.html)"  "AGENTIC CLAW"
+
+          kill $SERVER_PID 2>/dev/null
+
+          echo "Results: $PASS passed, $FAIL failed"
+          [ $FAIL -eq 0 ] && echo "✓ All checks passed" || exit 1

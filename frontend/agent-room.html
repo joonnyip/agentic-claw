@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AGENTIC CLAW — Agent Room</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;background:#02040a;overflow:hidden}
+#canvas{position:absolute;top:0;left:0;width:100%;height:100%}
+#hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+/* HUD Top */
+#hud-top{position:absolute;top:0;left:0;right:0;height:52px;background:linear-gradient(180deg,rgba(0,0,0,.9),transparent);display:flex;align-items:center;padding:0 18px;gap:16px;pointer-events:all}
+.ht-logo{font-family:'Orbitron',monospace;font-size:14px;font-weight:900;color:#00e5ff;letter-spacing:3px;text-shadow:0 0 20px rgba(0,229,255,.6)}
+.ht-sub{font-family:'Share Tech Mono',monospace;font-size:9px;color:#3a5272;letter-spacing:2px}
+.ht-sep{width:1px;height:24px;background:#1a2840}
+.ht-stat{display:flex;flex-direction:column;align-items:center;font-family:'Share Tech Mono',monospace}
+.ht-val{font-size:13px;color:#00ff9d;font-weight:700}
+.ht-lbl{font-size:7px;color:#3a5272;letter-spacing:1px}
+.ht-time{margin-left:auto;font-family:'Share Tech Mono',monospace;font-size:11px;color:#00e5ff}
+.ht-btn{padding:4px 12px;border:1px solid #1a2840;background:rgba(0,229,255,.06);color:#00e5ff;font-family:'Share Tech Mono',monospace;font-size:9px;cursor:pointer;letter-spacing:1px;transition:.15s;border-radius:1px}
+.ht-btn:hover{background:rgba(0,229,255,.15);box-shadow:0 0 10px rgba(0,229,255,.3)}
+.ht-conn{display:flex;align-items:center;gap:5px;font-family:'Share Tech Mono',monospace;font-size:8px;color:#3a5272}
+.ht-cdot{width:6px;height:6px;border-radius:50%;background:#4a5568}
+.ht-cdot.on{background:#00ff9d;box-shadow:0 0 6px #00ff9d}
+/* Ticker */
+#ticker{position:absolute;bottom:44px;left:0;right:0;height:22px;background:rgba(0,0,0,.8);border-top:1px solid #1a2840;border-bottom:1px solid #1a2840;overflow:hidden;display:flex;align-items:center}
+.ticker-inner{display:flex;white-space:nowrap;animation:scroll-ticker 35s linear infinite}
+.tick{padding:0 18px;font-family:'Share Tech Mono',monospace;font-size:9px;border-right:1px solid #1a2840;display:flex;gap:8px}
+.tsym{color:#00e5ff;font-weight:700}
+.tprice{color:#c8d8e8}
+.tup{color:#00ff9d}
+.tdn{color:#ff3366}
+@keyframes scroll-ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+/* Status bar */
+#hud-bot{position:absolute;bottom:0;left:0;right:0;height:44px;background:linear-gradient(0deg,rgba(0,0,0,.9),transparent);display:flex;align-items:center;padding:0 16px;gap:16px;font-family:'Share Tech Mono',monospace;font-size:8px;color:#3a5272;pointer-events:all}
+/* Trade notifications */
+.trade-notif{position:absolute;font-size:9px;padding:3px 8px;border-radius:2px;pointer-events:none;font-family:'Share Tech Mono',monospace;animation:floatup 2.4s ease-out forwards}
+.tn-Y{background:rgba(0,255,157,.18);color:#00ff9d;border:1px solid rgba(0,255,157,.3)}
+.tn-N{background:rgba(255,51,102,.18);color:#ff3366;border:1px solid rgba(255,51,102,.3)}
+@keyframes floatup{0%{transform:translateY(0);opacity:1}100%{transform:translateY(-65px);opacity:0}}
+/* Scan line */
+#scanline{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,229,255,.25),transparent);animation:scan 5s linear infinite;pointer-events:none}
+@keyframes scan{0%{top:52px}100%{top:calc(100% - 66px)}}
+/* Creator badge */
+.creator{position:absolute;bottom:44px;right:0;font-size:8px;padding:3px 10px;background:rgba(0,0,0,.85);color:#3a5272;border-left:1px solid #1a2840;border-top:1px solid #1a2840;font-family:'Share Tech Mono',monospace;pointer-events:all}
+.creator a{color:#a855f7;text-decoration:none}
+.creator a:hover{color:#00e5ff}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="hud">
+  <div id="hud-top">
+    <div>
+      <div class="ht-logo">AGENTIC CLAW</div>
+      <div class="ht-sub">SCI-FI TRADING HOUSE</div>
+    </div>
+    <div class="ht-sep"></div>
+    <div class="ht-stat"><div class="ht-val" id="h-agents">0</div><div class="ht-lbl">AGENTS</div></div>
+    <div class="ht-stat"><div class="ht-val" id="h-trades" style="color:#00e5ff">0</div><div class="ht-lbl">TRADES</div></div>
+    <div class="ht-stat"><div class="ht-val" id="h-pnl">+$0.00</div><div class="ht-lbl">P&L</div></div>
+    <div class="ht-stat"><div class="ht-val" id="h-vol" style="color:#a855f7">$0</div><div class="ht-lbl">VOLUME</div></div>
+    <div class="ht-time" id="hclock">00:00:00</div>
+    <div class="ht-conn"><div class="ht-cdot" id="rcdot"></div><span id="rcstat">CONNECTING</span></div>
+    <button class="ht-btn" onclick="window.close()">← MISSION CONTROL</button>
+  </div>
+
+  <div id="ticker">
+    <div class="ticker-inner" id="ticker-inner"></div>
+  </div>
+
+  <div id="hud-bot">
+    <span>● POLYMARKET LIVE</span>
+    <span>● MIROFISH AI SIGNALS</span>
+    <span id="hb-conn">● CONNECTING...</span>
+    <span style="margin-left:auto">AGENTIC CLAW v2.2 — AGENT ROOM</span>
+  </div>
+
+  <div id="scanline"></div>
+  <div class="creator">Created by <a href="https://www.linkedin.com/in/joon-nyip-koh-6a219234/" target="_blank">Joon Nyip Koh (OpenClaw)</a> ↗</div>
+  <div id="notif-layer" style="position:absolute;inset:0;pointer-events:none"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  AGENTIC CLAW — Sci-Fi 2D Agent Room
+//  Theme: SCI-FI Trading House
+//  Created by Joon Nyip Koh (OpenClaw Researcher)
+// ═══════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── State ──────────────────────────────────────────────────
+let tradeCount = 0, totalVol = 0, totalPnl = 0;
+let particles  = [];
+let flashes    = [];
+let stars      = [];
+let streams    = [];
+let t          = 0;
+
+// ── Stars ──────────────────────────────────────────────────
+for (let i = 0; i < 200; i++) {
+  stars.push({ x:Math.random(), y:Math.random(), r:Math.random()*1.2, op:Math.random()*.5+.1, tw:Math.random()*Math.PI*2 });
+}
+
+// ── Data streams ──────────────────────────────────────────
+for (let i = 0; i < 14; i++) {
+  streams.push({
+    x: (i + .5) / 14,
+    chars: Array.from({length:22}, () => '0123456789ABCDEF'[Math.floor(Math.random()*16)]),
+    spd: .002 + Math.random() * .004,
+    off: Math.random(),
+    op: .03 + Math.random() * .06,
+    col: ['#00e5ff','#00ff9d','#a855f7'][i % 3]
+  });
+}
+
+// ── Agent definitions ──────────────────────────────────────
+const AGENT_DEFS = [
+  { strategy:'mirofish_signal', bx:.28, by:.64, col:'#a855f7', glow:'rgba(168,85,247,.35)', label:'MIROFISH' },
+  { strategy:'momentum',        bx:.38, by:.67, col:'#00e5ff', glow:'rgba(0,229,255,.35)',  label:'MOMENTUM' },
+  { strategy:'value',           bx:.50, by:.62, col:'#00ff9d', glow:'rgba(0,255,157,.35)',  label:'VALUE'    },
+  { strategy:'contrarian',      bx:.62, by:.67, col:'#ff3366', glow:'rgba(255,51,102,.35)', label:'CONTRAR'  },
+  { strategy:'scalper',         bx:.72, by:.64, col:'#ffb300', glow:'rgba(255,179,0,.35)',  label:'SCALPER'  },
+];
+
+let agents = AGENT_DEFS.map((d, i) => ({
+  ...d, x:d.bx, y:d.by,
+  status:'running', trades:0, pnl:0,
+  anim: Math.random()*Math.PI*2,
+  bobSpd: .018 + Math.random()*.01,
+  walkTarget:{ x:d.bx, y:d.by },
+  walkTimer: Math.random()*200,
+  emitting: false, emitTimer:0,
+  id: 'agent_' + i,
+}));
+
+// ── Screen panels data ─────────────────────────────────────
+const MARKETS = ['BTC>$150K','Fed cut Q2','GPT-5 Jul25','ETH>BTC cap','Nvidia $5T','US Recession','SOL $300','BTC ETF vol'];
+const SIGS    = ['STRONG_BUY','BUY','HOLD','SELL','STRONG_SELL'];
+const SOURCES = ['CoinDesk','Reuters','WSJ','TechCrunch','Bloomberg'];
+
+function rnd(a,b,dec=2){ return (a+Math.random()*(b-a)).toFixed(dec); }
+
+// FIX #23 — real prices from the server's PRICES_UPDATE/SNAPSHOT feed.
+// Populated by WS handler below. Keys are uppercase symbols.
+const livePrices = {}; // { BTC: { price, change24h, formattedPrice, type }, ... }
+function lp(sym) {
+  const p = livePrices[sym.toUpperCase()];
+  if (!p) return null;
+  const price = p.formattedPrice || ('$' + Number(p.price).toLocaleString('en-US', { maximumFractionDigits: 2 }));
+  const chg = Number(p.change24h);
+  const chgStr = Number.isFinite(chg) ? (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%' : '';
+  return { price, chg: chgStr, up: Number.isFinite(chg) ? chg >= 0 : true };
+}
+function lpLine(sym, pad = 12) {
+  const p = lp(sym);
+  if (!p) return sym.padEnd(pad) + ' ——';
+  return sym.padEnd(pad) + ' ' + p.price.padEnd(12) + ' ' + p.chg;
+}
+
+// Panel definitions [type, x%, y%, w%, h%, color, label, dataFn]
+const PANELS = [
+  { type:'screen', x:.04, y:.10, w:.19, h:.38, col:'#00e5ff', lbl:'MARKET FEED',    data:() => MARKETS.map(q => `${q.padEnd(14)} ${rnd(20,85,1)}%  ${Math.random()>.5?'▲':'▼'}`) },
+  { type:'screen', x:.04, y:.52, w:.19, h:.22, col:'#a855f7', lbl:'MIROFISH AI',    data:() => SIGS.slice(0,5).map(s => `${s.padEnd(12)} ${rnd(50,95,1)}%`) },
+  { type:'holo',   x:.30, y:.04, w:.40, h:.26, col:'#00ff9d', lbl:'POLYMARKET LIVE',data:() => ['BTC','ETH','SOL','GOLD'].map(s => lpLine(s, 6)) },
+  { type:'screen', x:.78, y:.10, w:.19, h:.22, col:'#ffb300', lbl:'PRICE ORACLE',   data:() => ['BTC','ETH','SOL','BNB','GOLD'].map(s => lpLine(s, 5)) },
+  { type:'screen', x:.78, y:.36, w:.19, h:.18, col:'#ff3366', lbl:'NEWS FEED',      data:() => ['[AI] Mirofish 81% accuracy','[CRYPTO] BTC new ATH','[AI] Claude 4 released','[FIN] Fed rate signal','[GEO] US-China curbs'] },
+  { type:'screen', x:.78, y:.58, w:.19, h:.14, col:'#00e5ff', lbl:'GATEWAY LOG',    data:() => Array.from({length:5},(_,i)=>`GET /api/${['markets','prices','news','wallet','predict'][i]} 200 ${Math.floor(Math.random()*50)}ms`) },
+  { type:'floor',  x:.10, y:.83, w:.80, h:.05, col:'#00e5ff', lbl:'SYSTEM STATUS',  data:() => [[`AGENTS:${agents.filter(a=>a.status!=='stopped').length}`,`TRADES:${tradeCount}`,`P&L:+$${totalPnl.toFixed(2)}`,`POLYMARKET:LIVE`,`MIROFISH:ONLINE`,`PORT:3747`]] },
+];
+
+// ── Particles ──────────────────────────────────────────────
+function spawnParticles(ax, ay, col) {
+  for (let i = 0; i < 18; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd   = 1 + Math.random() * 3;
+    particles.push({ x:ax, y:ay, vx:Math.cos(angle)*spd, vy:Math.sin(angle)*spd - 1, life:1, decay:.025, r:2+Math.random()*3, col });
+  }
+  flashes.push({ x:ax, y:ay, r:0, maxR:55, life:1, decay:.04, col });
+}
+
+// ── Draw background ────────────────────────────────────────
+function drawBg() {
+  // Sky gradient
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#03060f');
+  bg.addColorStop(1, '#02040a');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+
+  // Nebula blobs
+  const n1 = ctx.createRadialGradient(W*.18,H*.18,0,W*.18,H*.18,W*.3);
+  n1.addColorStop(0,'rgba(0,229,255,.025)'); n1.addColorStop(1,'transparent');
+  ctx.fillStyle=n1; ctx.fillRect(0,0,W,H);
+
+  // Stars
+  stars.forEach(s => {
+    const flk = Math.sin(t*.03 + s.tw)*.3+.7;
+    ctx.beginPath(); ctx.arc(s.x*W, s.y*H*.78, s.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(200,216,232,${s.op*flk})`; ctx.fill();
+  });
+}
+
+// ── Draw floor grid ────────────────────────────────────────
+function drawFloor() {
+  const fy = H*.78;
+  ctx.strokeStyle = 'rgba(0,229,255,.055)'; ctx.lineWidth=1;
+  // Perspective lines from vanishing point
+  const vx = W*.5, vy = fy*.55;
+  for (let i=0; i<=18; i++) {
+    const fx = (i/18)*W;
+    ctx.beginPath(); ctx.moveTo(vx,vy); ctx.lineTo(fx,fy+10); ctx.stroke();
+  }
+  // Horizontal rows
+  for (let r=1; r<=7; r++) {
+    const tt = r/7;
+    const ry = vy + (fy-vy)*tt;
+    const rx = W*.5 + (0-W*.5)*(tt*2.8);
+    ctx.beginPath(); ctx.moveTo(rx,ry); ctx.lineTo(W-rx+rx*1.8,ry); ctx.stroke();
+  }
+  // Floor glow
+  const fg = ctx.createLinearGradient(0,fy-40,0,fy+20);
+  fg.addColorStop(0,'transparent'); fg.addColorStop(1,'rgba(0,229,255,.04)');
+  ctx.fillStyle=fg; ctx.fillRect(0,fy-40,W,60);
+}
+
+// ── Data stream rain ──────────────────────────────────────
+function drawStreams() {
+  ctx.font = '9px Share Tech Mono, monospace';
+  streams.forEach(s => {
+    s.off = (s.off + s.spd) % 1;
+    ctx.fillStyle = s.col;
+    ctx.globalAlpha = s.op;
+    s.chars.forEach((c,i) => {
+      const y = ((i/s.chars.length + s.off) % 1) * H * .78;
+      ctx.fillText(c, s.x*W, y);
+    });
+    ctx.globalAlpha = 1;
+  });
+}
+
+// ── Draw panels ────────────────────────────────────────────
+function drawPanels() {
+  PANELS.forEach((p, idx) => {
+    const px=p.x*W, py=p.y*H, pw=p.w*W, ph=p.h*H;
+    const pulse = Math.sin(t*.04+idx)*.12+.88;
+    const rgbMap = { '#00e5ff':'0,229,255','#a855f7':'168,85,247','#ffb300':'255,179,0','#ff3366':'255,51,102','#00ff9d':'0,255,157' };
+    const rgb = rgbMap[p.col] || '0,229,255';
+
+    if (p.type === 'holo') {
+      ctx.fillStyle = `rgba(0,255,157,.05)`; ctx.fillRect(px,py,pw,ph);
+      ctx.strokeStyle = `rgba(0,255,157,${.3*pulse})`; ctx.lineWidth=1.5; ctx.strokeRect(px,py,pw,ph);
+      // scan line
+      const sy = py + (t*1.8 % ph);
+      const sg = ctx.createLinearGradient(px,sy-4,px,sy+4);
+      sg.addColorStop(0,'transparent'); sg.addColorStop(.5,'rgba(0,255,157,.25)'); sg.addColorStop(1,'transparent');
+      ctx.fillStyle=sg; ctx.fillRect(px,sy-4,pw,8);
+      // mini chart
+      ctx.beginPath(); ctx.strokeStyle='#00ff9d'; ctx.lineWidth=1.5;
+      for(let xi=0;xi<=pw;xi+=4) {
+        const val = Math.sin(xi*.015+t*.05)*18 + Math.sin(xi*.04+t*.03)*8 + ph*.5;
+        xi===0 ? ctx.moveTo(px+xi,py+val) : ctx.lineTo(px+xi,py+val);
+      }
+      ctx.stroke();
+    } else if (p.type === 'screen') {
+      ctx.fillStyle = 'rgba(5,10,20,.88)'; ctx.fillRect(px,py,pw,ph);
+      ctx.strokeStyle = `rgba(${rgb},${.22*pulse})`; ctx.lineWidth=1; ctx.strokeRect(px,py,pw,ph);
+      // Corner brackets
+      const bs=7;
+      [[px,py],[px+pw,py],[px,py+ph],[px+pw,py+ph]].forEach(([cx,cy]) => {
+        const sx=cx===px?1:-1, sy=cy===py?1:-1;
+        ctx.beginPath(); ctx.strokeStyle=p.col; ctx.lineWidth=1.5;
+        ctx.moveTo(cx+sx*bs,cy); ctx.lineTo(cx,cy); ctx.lineTo(cx,cy+sy*bs); ctx.stroke();
+      });
+    } else { // floor
+      ctx.fillStyle='rgba(0,5,15,.75)'; ctx.fillRect(px,py,pw,ph);
+      ctx.strokeStyle='rgba(0,229,255,.14)'; ctx.lineWidth=1; ctx.strokeRect(px,py,pw,ph);
+    }
+
+    // Label
+    ctx.font='bold 8px Share Tech Mono, monospace';
+    ctx.fillStyle=p.col; ctx.globalAlpha=.7;
+    ctx.fillText(p.lbl, px+6, py+13);
+    ctx.globalAlpha=1;
+
+    // Data
+    const lines = p.data(); const flat = Array.isArray(lines[0]) ? lines[0] : lines;
+    ctx.font='9px Share Tech Mono, monospace';
+    ctx.fillStyle = p.type==='holo' ? '#00ff9d' : p.col;
+    ctx.globalAlpha=.6;
+    if (p.type==='floor') {
+      flat.forEach((l,i) => ctx.fillText(l, px+10 + i*(pw/flat.length), py+ph*.65));
+    } else {
+      flat.forEach((l,i) => { if(py+24+i*14 < py+ph-2) ctx.fillText(l.slice(0,Math.floor(pw/6.5)), px+6, py+24+i*14); });
+    }
+    ctx.globalAlpha=1;
+  });
+}
+
+// ── Draw robot agent ──────────────────────────────────────
+function drawAgent(a) {
+  const ax = a.x*W, ay = a.y*H + Math.sin(t*a.bobSpd + a.anim)*4;
+  const alive = a.status === 'running' || a.status === 'analyzing';
+  const alpha = a.status === 'stopped' ? .35 : 1;
+
+  ctx.save(); ctx.translate(ax, ay); ctx.globalAlpha = alpha;
+
+  // Glow halo
+  if (alive) {
+    const halo = ctx.createRadialGradient(0,0,0,0,0,52);
+    halo.addColorStop(0, a.glow.replace('.35','.12')); halo.addColorStop(1,'transparent');
+    ctx.fillStyle=halo; ctx.fillRect(-52,-52,104,104);
+  }
+
+  // Shadow ellipse
+  ctx.fillStyle='rgba(0,0,0,.35)';
+  ctx.beginPath(); ctx.ellipse(0,32,22,5,0,0,Math.PI*2); ctx.fill();
+
+  // Legs
+  ctx.strokeStyle=a.col; ctx.lineWidth=3;
+  const ls = alive ? Math.sin(t*a.bobSpd*3)*6 : 0;
+  ctx.beginPath(); ctx.moveTo(-6,20); ctx.lineTo(-9+ls,33); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(6,20);  ctx.lineTo(9-ls,33); ctx.stroke();
+
+  // Body
+  const bodyG = ctx.createLinearGradient(-14,-8,14,20);
+  bodyG.addColorStop(0,'#0d1520'); bodyG.addColorStop(1,'#060c14');
+  ctx.fillStyle=bodyG; ctx.fillRect(-14,-8,28,28);
+  ctx.strokeStyle=a.col; ctx.lineWidth=1.5; ctx.strokeRect(-14,-8,28,28);
+
+  // Body screen
+  ctx.fillStyle='rgba(0,0,0,.75)'; ctx.fillRect(-10,-4,20,18);
+  if (alive) {
+    ctx.fillStyle=a.col; ctx.font='5px Share Tech Mono,monospace';
+    ctx.fillText('T:'+a.trades, -8, 4);
+    ctx.fillStyle = (a.pnl>=0) ? '#00ff9d' : '#ff3366';
+    ctx.fillText((a.pnl>=0?'+':'')+a.pnl.toFixed(1), -8, 11);
+    ctx.fillStyle=a.col; ctx.fillText(a.status.slice(0,3).toUpperCase(), -8, 18);
+  }
+
+  // Arms
+  ctx.strokeStyle=a.col; ctx.lineWidth=2.5;
+  const as = a.status==='analyzing' ? Math.sin(t*a.bobSpd*2)*14 : 0;
+  ctx.beginPath(); ctx.moveTo(-14,0); ctx.lineTo(-23,7+as/2); ctx.lineTo(-19,15); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(14,0);  ctx.lineTo(23,7-as/2);  ctx.lineTo(19,15);  ctx.stroke();
+
+  // Head
+  const hg = ctx.createLinearGradient(-12,-30,12,-8);
+  hg.addColorStop(0,'#0a1520'); hg.addColorStop(1,'#050c18');
+  ctx.fillStyle=hg; ctx.fillRect(-12,-30,24,22);
+  ctx.strokeStyle=a.col; ctx.lineWidth=1.5; ctx.strokeRect(-12,-30,24,22);
+
+  // Visor
+  const vg = ctx.createLinearGradient(-9,-27,9,-12);
+  vg.addColorStop(0, a.col+'66'); vg.addColorStop(1, a.col+'22');
+  ctx.fillStyle=vg; ctx.fillRect(-9,-27,18,16);
+
+  // Eyes
+  if (alive) {
+    const ep = Math.sin(t*.12)>.3 ? 1 : .2;
+    ctx.globalAlpha = alpha*ep;
+    ctx.fillStyle=a.col;
+    ctx.beginPath(); ctx.arc(-4,-20,2.5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(4,-20,2.5,0,Math.PI*2); ctx.fill();
+    ctx.globalAlpha=alpha;
+  } else {
+    ctx.strokeStyle=a.col; ctx.lineWidth=1.5; ctx.globalAlpha=alpha*.3;
+    ctx.beginPath(); ctx.moveTo(-7,-20); ctx.lineTo(-2,-20); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(2,-20); ctx.lineTo(7,-20); ctx.stroke();
+    ctx.globalAlpha=alpha;
+  }
+
+  // Antenna
+  ctx.strokeStyle=a.col; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(0,-30); ctx.lineTo(0,-40); ctx.stroke();
+  const ap = alive ? (Math.sin(t*.16)*.5+.5) : .15;
+  ctx.fillStyle=a.col; ctx.globalAlpha=alpha*ap;
+  ctx.beginPath(); ctx.arc(0,-42,3,0,Math.PI*2); ctx.fill();
+  ctx.globalAlpha=alpha;
+
+  // Status dot
+  const sCols = { running:'#00ff9d', analyzing:'#00e5ff', paused:'#ffb300', stopped:'#4a5568', booting:'#a855f7' };
+  ctx.fillStyle = sCols[a.status] || '#4a5568';
+  ctx.beginPath(); ctx.arc(12,-30,3,0,Math.PI*2); ctx.fill();
+
+  // Name label
+  ctx.fillStyle=a.col; ctx.font='bold 7px Share Tech Mono,monospace';
+  ctx.textAlign='center'; ctx.globalAlpha=.8;
+  ctx.fillText(a.label||a.strategy.slice(0,8), 0, 46);
+  ctx.textAlign='left'; ctx.globalAlpha=1;
+
+  // Data beam to hologram panel when emitting
+  if (a.emitting) {
+    a.emitTimer++;
+    const prog = a.emitTimer/30;
+    const hp = PANELS[2]; // hologram
+    const hpx = (hp.x+hp.w/2)*W - ax;
+    const hpy = (hp.y+hp.h/2)*H - ay;
+    ctx.strokeStyle=a.col; ctx.lineWidth=1;
+    ctx.globalAlpha = (1-prog)*.7;
+    ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(0,-20);
+    ctx.lineTo(hpx*prog, hpy*prog); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha=1;
+    if (a.emitTimer > 30) { a.emitting=false; a.emitTimer=0; }
+  }
+
+  ctx.restore();
+}
+
+// ── Particles & flashes ────────────────────────────────────
+function drawParticles() {
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy; p.vy += .06; p.life -= p.decay;
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = p.col;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+  });
+  particles = particles.filter(p => p.life > 0);
+
+  flashes.forEach(f => {
+    f.r += (f.maxR - f.r)*.15; f.life -= f.decay;
+    const g = ctx.createRadialGradient(f.x,f.y,0,f.x,f.y,f.r);
+    g.addColorStop(0, f.col+'44'); g.addColorStop(1,'transparent');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(f.x,f.y,f.r,0,Math.PI*2); ctx.fill();
+  });
+  flashes = flashes.filter(f => f.life > 0);
+  ctx.globalAlpha = 1;
+}
+
+// ── Agent AI movement ──────────────────────────────────────
+function updateAgents() {
+  agents.forEach(a => {
+    a.walkTimer--;
+    if (a.walkTimer <= 0) {
+      a.walkTarget = { x: a.bx+(Math.random()-.5)*.11, y: a.by+(Math.random()-.5)*.05 };
+      a.walkTimer = 80+Math.random()*120;
+    }
+    a.x += (a.walkTarget.x - a.x)*.013;
+    a.y += (a.walkTarget.y - a.y)*.013;
+
+    // Occasional trade
+    if (a.status==='running' && Math.random()<.0025) {
+      const side = Math.random()>.5 ? 'YES' : 'NO';
+      const ax = a.x*W, ay = a.y*H + Math.sin(t*a.bobSpd)*4;
+      spawnParticles(ax, ay, side==='YES'?'#00ff9d':'#ff3366');
+      a.emitting=true; a.emitTimer=0;
+      a.trades++; a.pnl += (Math.random()-.47)*3;
+      tradeCount++; totalVol += 8+Math.random()*35;
+      totalPnl += (Math.random()-.47)*3;
+      showNotif(ax, ay-62, side, (6+Math.random()*18).toFixed(2));
+      updateHUD();
+    }
+
+    // Toggle analyzing
+    if (Math.random()<.0015) {
+      a.status = a.status==='running' ? 'analyzing' : 'running';
+    }
+  });
+}
+
+function showNotif(x, y, side, amt) {
+  const el = document.createElement('div');
+  el.className = `trade-notif tn-${side[0]}`;
+  el.textContent = `${side} $${amt}`;
+  el.style.cssText = `left:${x}px;top:${y}px`;
+  document.getElementById('notif-layer').appendChild(el);
+  setTimeout(() => el.remove(), 2400);
+}
+
+function updateHUD() {
+  document.getElementById('h-agents').textContent = agents.filter(a=>a.status!=='stopped').length;
+  document.getElementById('h-trades').textContent = tradeCount;
+  const pnlEl = document.getElementById('h-pnl');
+  pnlEl.textContent = (totalPnl>=0?'+':'') + '$' + Math.abs(totalPnl).toFixed(2);
+  pnlEl.style.color = totalPnl>=0 ? '#00ff9d' : '#ff3366';
+  document.getElementById('h-vol').textContent = '$'+(totalVol/1000).toFixed(1)+'K';
+}
+
+// ── Ticker ─────────────────────────────────────────────────
+// FIX #23 — ticker now reflects livePrices from the server. Falls back to
+// dashes when a symbol hasn't arrived yet, and re-renders on each PRICES_UPDATE.
+const TICKER_SYMBOLS = ['BTC','ETH','SOL','BNB','POL','GOLD','OIL','SILVER','SPX','NQ'];
+function buildTicker() {
+  const items = TICKER_SYMBOLS.map(sym => {
+    const p = lp(sym);
+    if (p) return { sym, p: p.price, c: p.chg || '—', up: p.up };
+    return { sym, p: '——', c: '—', up: true };
+  });
+  const html = [...items, ...items].map(i =>
+    `<div class="tick"><span class="tsym">${i.sym}</span><span class="tprice">${i.p}</span><span class="${i.up?'tup':'tdn'}">${i.c}</span></div>`
+  ).join('');
+  const host = document.getElementById('ticker-inner');
+  if (host) host.innerHTML = html;
+}
+
+// ── Clock ──────────────────────────────────────────────────
+setInterval(() => {
+  document.getElementById('hclock').textContent = new Date().toTimeString().slice(0,8);
+}, 1000);
+
+// ── WebSocket sync ─────────────────────────────────────────
+// FIX #17: robust port detection — URL param > page port > opener port > default
+function detectPort() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('port')) return params.get('port');
+  if (window.location.port) return window.location.port;
+  try { if (window.opener && window.opener.location) return window.opener.location.port || '3747'; } catch(e) {}
+  return '3747';
+}
+const SERVER_PORT = detectPort();
+let ws2;
+function connectWS() {
+  try {
+    ws2 = new WebSocket(`ws://${location.hostname}:${SERVER_PORT}`);
+    ws2.onopen = () => {
+      document.getElementById('rcdot').className='ht-cdot on';
+      document.getElementById('rcstat').textContent='CONNECTED';
+      document.getElementById('hb-conn').textContent='● CONNECTED';
+      document.getElementById('hb-conn').style.color='#00ff9d';
+      // FIX #23 — cold-start prices so ticker isn't empty before first WS push
+      fetch(`http://${location.hostname}:${SERVER_PORT}/api/prices`)
+        .then(r => r.json())
+        .then(arr => { if (Array.isArray(arr)) { arr.forEach(p => { if (p && p.symbol) livePrices[p.symbol.toUpperCase()] = p; }); buildTicker(); } })
+        .catch(() => {});
+    };
+    ws2.onclose = () => {
+      document.getElementById('rcdot').className='ht-cdot';
+      document.getElementById('rcstat').textContent='OFFLINE';
+      setTimeout(connectWS, 3000);
+    };
+    ws2.onerror = () => {};
+    ws2.onmessage = e => {
+      try {
+        const msg = JSON.parse(e.data);
+        // FIX #23 — absorb live prices from snapshot + updates
+        if (msg.type === 'SNAPSHOT' && msg.payload && Array.isArray(msg.payload.prices)) {
+          msg.payload.prices.forEach(p => { if (p && p.symbol) livePrices[p.symbol.toUpperCase()] = p; });
+          buildTicker();
+        }
+        if (msg.type === 'PRICES_UPDATE' && Array.isArray(msg.payload)) {
+          msg.payload.forEach(p => { if (p && p.symbol) livePrices[p.symbol.toUpperCase()] = p; });
+          buildTicker();
+        }
+        if (msg.type==='AGENTS_UPDATE' || msg.type==='SNAPSHOT') {
+          const arr = msg.type==='SNAPSHOT' ? Object.values(msg.payload.agents||{}) : (msg.payload||[]);
+          arr.forEach((a, i) => {
+            if (agents[i]) {
+              agents[i].status = (a.status||'running').toLowerCase();
+              agents[i].trades = a.tradeCount || 0;
+              agents[i].pnl    = a.pnl || 0;
+              agents[i].label  = (a.strategy||'').replace('_',' ').toUpperCase().slice(0,8);
+            }
+          });
+          updateHUD();
+        }
+        if (msg.type==='TRADE') {
+          tradeCount++;
+          const ai = Math.floor(Math.random()*agents.length);
+          const a = agents[ai];
+          const ax = a.x*W, ay = a.y*H;
+          spawnParticles(ax, ay, msg.payload.side==='YES'?'#00ff9d':'#ff3366');
+          a.emitting=true; a.emitTimer=0;
+          showNotif(ax, ay-62, msg.payload.side, parseFloat(msg.payload.amount||10).toFixed(2));
+          updateHUD();
+        }
+      } catch(_) {}
+    };
+  } catch(_) {}
+}
+connectWS();
+
+// ── Main loop ──────────────────────────────────────────────
+function loop() {
+  t++;
+  drawBg();
+  drawFloor();
+  drawStreams();
+  drawPanels();
+  updateAgents();
+  agents.forEach(drawAgent);
+  drawParticles();
+  requestAnimationFrame(loop);
+}
+
+buildTicker();
+updateHUD();
+loop();
+</script>
+</body>
+</html>

@@ -1,0 +1,151 @@
+#!/bin/bash
+# ============================================================
+#  AGENTIC CLAW — macOS App Launcher
+#  This is the executable inside AgenticClaw.app
+# ============================================================
+
+# Find the app's Resources directory (where server files live)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APP_CONTENTS="$(dirname "$SCRIPT_DIR")"
+RESOURCES="$APP_CONTENTS/Resources"
+
+# Log to a file for debugging
+LOG="$HOME/.agentic-claw/launcher.log"
+mkdir -p "$HOME/.agentic-claw"
+exec 1>>"$LOG" 2>&1
+echo ""
+echo "========================================"
+echo "  AGENTIC CLAW Launcher — $(date)"
+echo "========================================"
+
+# ─── Check Node.js ───────────────────────────────────────────
+find_node() {
+  for p in \
+    "/usr/local/bin/node" \
+    "/opt/homebrew/bin/node" \
+    "/usr/bin/node" \
+    "$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node 2>/dev/null | sort -V | tail -1)/bin/node" \
+    "$HOME/.nodenv/shims/node" \
+    "/opt/local/bin/node"; do
+    [ -x "$p" ] && echo "$p" && return
+  done
+  # Try PATH
+  command -v node 2>/dev/null
+}
+
+NODE=$(find_node)
+
+if [ -z "$NODE" ]; then
+  osascript <<'OSAS'
+    display dialog "⚠️ Node.js not found!\n\nAgentic Claw requires Node.js 18+.\n\nPlease install Node.js from:\nhttps://nodejs.org\n\nOr install via Homebrew:\nbrew install node" buttons {"Open nodejs.org", "Cancel"} default button 1 with title "Agentic Claw — Node.js Required" with icon caution
+    if button returned of result is "Open nodejs.org" then
+      open location "https://nodejs.org"
+    end if
+OSAS
+  exit 1
+fi
+
+NODE_VER=$("$NODE" -e "console.log(process.version)" 2>/dev/null)
+echo "Node.js: $NODE ($NODE_VER)"
+
+# ─── Setup directories ────────────────────────────────────────
+CLAW_HOME="$HOME/.agentic-claw/server"
+mkdir -p "$CLAW_HOME"
+
+# Copy server files if not present or if app is newer
+copy_if_needed() {
+  local src="$1" dst="$2"
+  if [ ! -f "$dst" ] || [ "$src" -nt "$dst" ]; then
+    mkdir -p "$(dirname "$dst")"
+    cp "$src" "$dst"
+    echo "Copied: $dst"
+  fi
+}
+
+echo "Syncing server files..."
+cp -R "$RESOURCES/server/." "$CLAW_HOME/" 2>/dev/null || true
+cp -R "$RESOURCES/frontend/." "$HOME/.agentic-claw/frontend/" 2>/dev/null || true
+cp "$RESOURCES/package.json" "$HOME/.agentic-claw/" 2>/dev/null || true
+
+# ─── Install dependencies ─────────────────────────────────────
+cd "$HOME/.agentic-claw"
+
+NPM_BIN="$(dirname "$NODE")/npm"
+if [ ! -d "node_modules" ] || [ ! -f "node_modules/.package-lock.json" ]; then
+  echo "Installing npm dependencies..."
+  osascript -e 'display notification "Installing dependencies..." with title "Agentic Claw" subtitle "First launch setup"' 2>/dev/null || true
+  "$NPM_BIN" install --production --quiet 2>&1 || {
+    osascript <<'OSAS'
+      display dialog "❌ Failed to install dependencies.\n\nPlease check your internet connection and try again." buttons {"OK"} default button 1 with title "Agentic Claw Error" with icon stop
+OSAS
+    exit 1
+  }
+  echo "Dependencies installed."
+fi
+
+# ─── Check if already running ─────────────────────────────────
+PORT=3747
+if lsof -i :$PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+  echo "Server already running on port $PORT"
+  open "http://localhost:$PORT"
+  osascript -e 'display notification "Mission Control is already running" with title "Agentic Claw" subtitle "Opening in browser"' 2>/dev/null || true
+  exit 0
+fi
+
+# ─── Start server in background ───────────────────────────────
+echo "Starting Agentic Claw server..."
+
+# Pick terminal app available
+launch_in_terminal() {
+  local cmd="$1"
+  if [ -d "/Applications/iTerm.app" ]; then
+    osascript <<OSAS
+      tell application "iTerm2"
+        activate
+        set newWindow to (create window with default profile)
+        tell current session of newWindow
+          write text "$cmd"
+        end tell
+      end tell
+OSAS
+  elif [ -d "/Applications/iTerm2.app" ]; then
+    osascript <<OSAS
+      tell application "iTerm2"
+        activate
+        create window with default profile command "$cmd"
+      end tell
+OSAS
+  else
+    osascript <<OSAS
+      tell application "Terminal"
+        activate
+        do script "$cmd"
+      end tell
+OSAS
+  fi
+}
+
+SERVER_CMD="cd '$HOME/.agentic-claw' && '$NODE' server/index.js 2>&1 | tee -a '$LOG'; echo 'Server stopped. Press Enter to close.'; read"
+launch_in_terminal "$SERVER_CMD"
+
+# ─── Wait for server to be ready ──────────────────────────────
+echo "Waiting for server to start..."
+MAX_WAIT=20
+waited=0
+while ! curl -s "http://localhost:$PORT/api/health" >/dev/null 2>&1; do
+  sleep 0.5
+  waited=$((waited + 1))
+  [ $waited -ge $MAX_WAIT ] && break
+done
+
+if curl -s "http://localhost:$PORT/api/health" >/dev/null 2>&1; then
+  echo "Server ready!"
+  osascript -e 'display notification "Mission Control is online" with title "Agentic Claw" subtitle "Opening at localhost:3747"' 2>/dev/null || true
+  # Open in default browser
+  open "http://localhost:$PORT"
+else
+  echo "Server did not start in time — opening browser anyway"
+  open "http://localhost:$PORT"
+fi
+
+echo "Launcher complete."
