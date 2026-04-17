@@ -1,5 +1,5 @@
 // ============================================================
-//  AGENTIC CLAW — Mission Control Server v2.2
+//  AGENTIC CLAW — Mission Control Server v2.3
 //  Created by Joon Nyip Koh (OpenClaw Researcher)
 //  FIXES: interval try/catch, switch-case braces, route order,
 //         terminal command bugs, AGENTS_UPDATE serialization
@@ -19,6 +19,7 @@ const mirofish      = require('./mirofish');
 const newsModule    = require('./news');
 const pricesModule  = require('./prices');
 const walletModule  = require('./wallet');
+const persistence   = require('./persistence');  // v2.3 — SQLite layer
 
 const app    = express();
 const server = http.createServer(app);
@@ -159,7 +160,7 @@ function handleTerminalCommand(ws, cmd) {
 
   switch (command) {
     case 'help': {
-      sendOut(`AGENTIC CLAW v2.2 — Commands:
+      sendOut(`AGENTIC CLAW v2.3 — Commands:
   agents list                List all running agents
   agents spawn <strategy>    Spawn new agent
   agents kill <id>           Kill agent by ID
@@ -172,6 +173,8 @@ function handleTerminalCommand(ws, cmd) {
   prices                     Show live crypto & commodity prices
   wallet <provider> <addr>   Check wallet balance
   trade <marketId> YES|NO    Manual trade (amount=10)
+  pnl [7d|30d|90d]           Show P&L history (default 7d)
+  persist                    Persistence stats (agents, trades, snapshots on disk)
   status                     System status
   logs [n]                   Show last n log entries (default 10)
   clear                      Clear terminal`);
@@ -279,7 +282,7 @@ function handleTerminalCommand(ws, cmd) {
     case 'status': {
       const sec    = Math.floor((Date.now() - state.uptime) / 1000);
       const agents = AgentManager.getAll();
-      response = `AGENTIC CLAW v2.2 — SYSTEM STATUS
+      response = `AGENTIC CLAW v2.3 — SYSTEM STATUS
   Uptime:      ${Math.floor(sec/3600)}h ${Math.floor((sec%3600)/60)}m ${sec%60}s
   Agents:      ${agents.length} running (${agents.filter(a=>a.status==='RUNNING').length} active, ${agents.filter(a=>a.status==='PAUSED').length} paused)
   Markets:     ${state.markets.length} loaded
@@ -298,6 +301,42 @@ function handleTerminalCommand(ws, cmd) {
       response = state.logs.slice(0, n)
         .map(l => `  [${l.level.padEnd(7)}] ${l.ts.split('T')[1].split('.')[0]} ${l.source}: ${l.message}`)
         .join('\n');
+      break;
+    }
+
+    case 'pnl': {
+      // v2.3 — P&L history summary. Default 7d, accepts 30d / 90d.
+      const range = ['7d', '30d', '90d'].includes(parts[1]) ? parts[1] : '7d';
+      const pts = persistence.pnlHistory(range);
+      if (!pts.length) {
+        response = `No P&L history yet (${range}). Snapshots are taken every 60s — give agents a minute to accumulate data.`;
+      } else {
+        const first = pts[0], last = pts[pts.length - 1];
+        const delta = last.total_balance - first.total_balance;
+        const sign  = delta >= 0 ? '+' : '';
+        response = `P&L HISTORY — ${range.toUpperCase()} (${pts.length} samples)\n` +
+          `  First sample:  ${first.ts.replace('T',' ').slice(0,19)}  bal=$${first.total_balance.toFixed(2)}\n` +
+          `  Latest sample: ${last.ts.replace('T',' ').slice(0,19)}  bal=$${last.total_balance.toFixed(2)}\n` +
+          `  Change:        ${sign}$${delta.toFixed(2)}  realized=${sign}$${last.realized_pnl.toFixed(2)}\n` +
+          `  Open positions: ${last.open_positions}   Active agents: ${last.active_agents}`;
+      }
+      break;
+    }
+
+    case 'persist': {
+      // v2.3 — Persistence layer diagnostics
+      const s = persistence.stats();
+      if (!s.enabled) {
+        response = 'Persistence DISABLED — better-sqlite3 not installed.\nRun: npm install';
+      } else {
+        response = `PERSISTENCE STATS\n` +
+          `  Database:   ${s.dbPath}\n` +
+          `  Schema:     v${s.schemaVer}\n` +
+          `  Agents:     ${s.agents}\n` +
+          `  Trades:     ${s.trades}\n` +
+          `  Snapshots:  ${s.snapshots}\n` +
+          `  Positions:  ${s.positions}`;
+      }
       break;
     }
 
@@ -333,6 +372,13 @@ app.post('/api/wallet', async (req, res) => {
 app.post('/api/agents/spawn',  (req, res) => res.json(AgentManager.spawn(req.body)));
 app.delete('/api/agents/:id',  (req, res) => { AgentManager.kill(req.params.id); res.json({ ok: true }); });
 
+// v2.3 — P&L history and persistence stats
+app.get('/api/pnl/history', (req, res) => {
+  const range = ['7d', '30d', '90d'].includes(req.query.range) ? req.query.range : '7d';
+  res.json({ range, points: persistence.pnlHistory(range) });
+});
+app.get('/api/pnl/stats', (req, res) => res.json(persistence.stats()));
+
 // Gateway router handles /api/* sub-routes (polymarket, mirofish, combined, etc.)
 app.use('/api', gateway.router);
 
@@ -341,16 +387,27 @@ global.recordTrade = (trade) => {
   const entry = { ...trade, id: uuidv4(), ts: new Date().toISOString() };
   state.trades.unshift(entry);
   if (state.trades.length > 1000) state.trades.pop();
+  persistence.recordTrade(entry);  // v2.3 — persist to SQLite
   broadcast({ type: 'TRADE', payload: entry });
 };
 
 // ── Boot ──────────────────────────────────────────────────
 server.listen(PORT, async () => {
   log('INFO', 'SERVER', `╔════════════════════════════════════════════╗`);
-  log('INFO', 'SERVER', `║  AGENTIC CLAW v2.2 — MISSION CONTROL      ║`);
+  log('INFO', 'SERVER', `║  AGENTIC CLAW v2.3 — MISSION CONTROL      ║`);
   log('INFO', 'SERVER', `║  Created by Joon Nyip Koh (OpenClaw)       ║`);
   log('INFO', 'SERVER', `║  http://localhost:${PORT}                     ║`);
   log('INFO', 'SERVER', `╚════════════════════════════════════════════╝`);
+
+  // v2.3 — Initialize persistence FIRST, before AgentManager's deferred
+  // rehydration timer fires. Graceful no-op if better-sqlite3 missing.
+  const persistOk = persistence.init();
+  if (persistOk) {
+    const s = persistence.stats();
+    log('INFO', 'PERSISTENCE', `SQLite ready — ${s.agents} agents, ${s.trades} trades, ${s.snapshots} snapshots on disk`);
+  } else {
+    log('WARN', 'PERSISTENCE', 'Running without persistence — state will not survive restart');
+  }
 
   // FIX #4: all boot fetches wrapped in individual try/catch
   const safe = async (label, fn) => {
@@ -388,6 +445,38 @@ server.listen(PORT, async () => {
     }
   }, 180000);
 
+  // v2.3 — P&L snapshot sampler (every 60s). Aggregates realized P&L
+  // across all agents plus the simulated balance baseline. This feeds
+  // the /api/pnl/history chart.
+  setInterval(() => {
+    try {
+      const all = AgentManager.getAll();
+      const realizedPnl   = all.reduce((s, a) => s + (a.pnl || 0), 0);
+      const totalRemaining = all.reduce((s, a) => s + (a.remaining || 0), 0);
+      const totalBudget    = all.reduce((s, a) => s + (a.budget || 0), 0);
+      persistence.saveSnapshot({
+        ts: new Date().toISOString(),
+        totalBalance:   totalRemaining + realizedPnl,
+        realizedPnl,
+        unrealizedPnl:  0,  // placeholder until v2.5 live positions land
+        openPositions:  persistence.openPositions().length,
+        activeAgents:   all.filter(a => a.status === 'RUNNING').length,
+      });
+    } catch (e) {
+      log('ERROR', 'SNAPSHOT', e.message);
+    }
+  }, 60000);
+
+  // v2.3 — nightly retention sweep at ~03:00 local, checking hourly
+  setInterval(() => {
+    const h = new Date().getHours();
+    if (h === 3) {
+      const t = persistence.trimSnapshots();
+      const tr = persistence.trimTrades();
+      if (t || tr) log('INFO', 'PERSISTENCE', `Retention sweep: ${t} old snapshots, ${tr} old trades pruned`);
+    }
+  }, 3600 * 1000);
+
   // FIX #30 — ping every 30s; terminate sockets that didn't pong back.
   // Also re-syncs state.connected so the counter reflects reality.
   const heartbeat = setInterval(() => {
@@ -407,6 +496,16 @@ server.listen(PORT, async () => {
     }
   }, 30000);
   wss.on('close', () => clearInterval(heartbeat));
+
+  // v2.3 — clean shutdown: close DB properly so WAL checkpoint completes
+  const shutdown = (sig) => {
+    log('INFO', 'SERVER', `Received ${sig}, shutting down...`);
+    try { persistence.close(); } catch (e) {}
+    try { server.close(() => process.exit(0)); } catch (e) { process.exit(0); }
+    setTimeout(() => process.exit(1), 5000).unref();
+  };
+  process.on('SIGINT',  () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 
   log('INFO', 'SERVER', `Server ready — all systems online`);
 });

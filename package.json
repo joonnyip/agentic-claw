@@ -1,6 +1,6 @@
 {
   "name": "agentic-claw",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Mission Control for autonomous Polymarket trading agents — powered by Mirofish AI predictions",
   "main": "server/index.js",
   "scripts": {
@@ -8,7 +8,16 @@
     "dev": "node server/index.js",
     "check": "node --check server/index.js && node --check server/gateway.js && node --check server/agents/AgentManager.js && echo 'All syntax OK'"
   },
-  "keywords": ["polymarket", "prediction-markets", "trading", "mirofish", "ai-agents", "mission-control", "websocket", "nodejs"],
+  "keywords": [
+    "polymarket",
+    "prediction-markets",
+    "trading",
+    "mirofish",
+    "ai-agents",
+    "mission-control",
+    "websocket",
+    "nodejs"
+  ],
   "author": {
     "name": "Joon Nyip Koh",
     "url": "https://www.linkedin.com/in/joon-nyip-koh-6a219234/"
@@ -30,6 +39,7 @@
     "dotenv": "^16.4.1",
     "express": "^4.18.2",
     "uuid": "^9.0.0",
-    "ws": "^8.16.0"
+    "ws": "^8.16.0",
+    "better-sqlite3": "^11.5.0"
   }
 }

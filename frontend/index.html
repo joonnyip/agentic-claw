@@ -62,6 +62,16 @@ footer{grid-column:1/-1;background:var(--bg2);display:flex;align-items:center;pa
 .sec-btn{font-size:8px;padding:1px 7px;border:1px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;border-radius:1px;font-family:'Share Tech Mono',monospace;transition:.15s}
 .sec-btn:hover{border-color:var(--cyan);color:var(--cyan)}
 
+/* ── Portfolio P&L (v2.3) ─────────────── */
+.pnl-rbtn{font-size:8px;padding:1px 6px;border:1px solid var(--border2);background:transparent;color:var(--text3);cursor:pointer;border-radius:1px;font-family:'Share Tech Mono',monospace;letter-spacing:.5px;transition:.15s}
+.pnl-rbtn:hover{border-color:var(--cyan);color:var(--cyan)}
+.pnl-rbtn-active{border-color:var(--cyan);color:var(--cyan);background:rgba(0,229,255,.08)}
+.pnl-wrap{background:var(--panel);border:1px solid var(--border);padding:6px 8px;margin-bottom:6px;position:relative;min-height:100px}
+#pnl-canvas{width:100%;display:block}
+#pnl-empty{font-size:9px;color:var(--text3);text-align:center}
+.pnl-up{color:var(--green)}
+.pnl-dn{color:var(--red)}
+
 /* ── Metrics ──────────────────────────── */
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);flex-shrink:0}
 .metric{background:var(--panel);padding:10px 12px;position:relative;overflow:hidden}
@@ -299,7 +309,7 @@ select.minput option{background:var(--bg2)}
       <polygon points="14,7 23,20 5,20" fill="rgba(0,229,255,.07)" stroke="#00e5ff" stroke-width=".5"/>
       <circle cx="14" cy="14" r="2.5" fill="#00e5ff" opacity=".85"/>
     </svg>
-    <div><div class="logo-text">AGENTIC CLAW</div><div class="logo-sub">MISSION CONTROL v2.2</div></div>
+    <div><div class="logo-text">AGENTIC CLAW</div><div class="logo-sub">MISSION CONTROL v2.3</div></div>
   </div>
   <div class="hdr-tabs">
     <div class="htab active" onclick="switchTab(0)"><span class="hdot"></span>DASHBOARD</div>
@@ -392,10 +402,10 @@ select.minput option{background:var(--bg2)}
   <div id="terminal">
     <div class="term-hdr">
       <div class="tdots"><div class="td td-r"></div><div class="td td-y"></div><div class="td td-g"></div></div>
-      AGENT TERMINAL — AGENTIC CLAW v2.2
+      AGENT TERMINAL — AGENTIC CLAW v2.3
     </div>
     <div id="termout">
-      <div class="tinfo">AGENTIC CLAW Mission Control Terminal v2.2</div>
+      <div class="tinfo">AGENTIC CLAW Mission Control Terminal v2.3</div>
       <div class="tinfo">Created by Joon Nyip Koh (OpenClaw Researcher)</div>
       <div class="tinfo">Connecting to server...</div>
     </div>
@@ -420,6 +430,19 @@ select.minput option{background:var(--bg2)}
   <!-- PREDICTIONS -->
   <div class="sec">MIROFISH AI <span class="sec-n" id="pred-count">0</span></div>
   <div id="pred-list" style="overflow-y:auto;max-height:200px"><div class="empty">Loading predictions...</div></div>
+
+  <!-- PORTFOLIO P&L (v2.3) -->
+  <div class="sec" id="pnl-section">PORTFOLIO P&amp;L <span class="sec-n" id="pnl-delta">--</span>
+    <span style="display:inline-flex;gap:3px;margin-left:auto">
+      <button class="pnl-rbtn pnl-rbtn-active" data-range="7d"  onclick="setPnlRange('7d')">7D</button>
+      <button class="pnl-rbtn"                  data-range="30d" onclick="setPnlRange('30d')">30D</button>
+      <button class="pnl-rbtn"                  data-range="90d" onclick="setPnlRange('90d')">90D</button>
+    </span>
+  </div>
+  <div class="pnl-wrap">
+    <canvas id="pnl-canvas" height="90"></canvas>
+    <div id="pnl-empty" class="empty" style="padding:14px 0">Collecting samples... first data point in ~60s</div>
+  </div>
 
   <!-- TRADE FEED -->
   <div class="sec">TRADE FEED <span class="sec-n" id="trade-count">0</span></div>
@@ -458,7 +481,7 @@ select.minput option{background:var(--bg2)}
 
 <!-- ══ FOOTER ══ -->
 <footer>
-  <span>AGENTIC CLAW v2.2</span>|
+  <span>AGENTIC CLAW v2.3</span>|
   <span id="ft-clients">0 CLIENTS</span>|
   <span>POLYMARKET: <span style="color:var(--green)">LIVE</span></span>|
   <span>MIROFISH: <span style="color:var(--green)">ONLINE</span></span>|
@@ -485,7 +508,7 @@ select.minput option{background:var(--bg2)}
 
 <script>
 // ═══════════════════════════════════════════════════════════
-//  AGENTIC CLAW Mission Control v2.2
+//  AGENTIC CLAW Mission Control v2.3
 //  Created by Joon Nyip Koh (OpenClaw Researcher)
 // ═══════════════════════════════════════════════════════════
 
@@ -1055,6 +1078,115 @@ function tPrint(type, text) {
   while (out.children.length > 500) out.removeChild(out.firstChild);
   out.scrollTop = out.scrollHeight;
 }
+
+// ── Portfolio P&L chart (v2.3) ───────────────────────────────
+let pnlRange = '7d';
+let pnlPoints = [];
+let pnlFetchTimer = null;
+
+function setPnlRange(range) {
+  if (!['7d','30d','90d'].includes(range) || range === pnlRange) return;
+  pnlRange = range;
+  document.querySelectorAll('.pnl-rbtn').forEach(b => {
+    b.classList.toggle('pnl-rbtn-active', b.dataset.range === range);
+  });
+  fetchPnlHistory();
+}
+
+async function fetchPnlHistory() {
+  try {
+    const res = await fetch(`/api/pnl/history?range=${pnlRange}`);
+    const j = await res.json();
+    pnlPoints = j.points || [];
+    drawPnlChart();
+  } catch (e) {
+    // silent — if the endpoint is unreachable the chart just stays empty
+  }
+}
+
+function drawPnlChart() {
+  const canvas = document.getElementById('pnl-canvas');
+  const empty  = document.getElementById('pnl-empty');
+  const delta  = document.getElementById('pnl-delta');
+  if (!canvas || !empty) return;
+
+  // Need at least 2 points to draw a line
+  if (pnlPoints.length < 2) {
+    canvas.style.display = 'none';
+    empty.style.display  = 'block';
+    delta.textContent = '--';
+    delta.className = 'sec-n';
+    return;
+  }
+  canvas.style.display = 'block';
+  empty.style.display  = 'none';
+
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width  = canvas.offsetWidth;
+  const H = canvas.height = 90;
+  ctx.clearRect(0, 0, W, H);
+
+  // Extract balance series
+  const vals = pnlPoints.map(p => Number(p.total_balance) || 0);
+  const min  = Math.min(...vals);
+  const max  = Math.max(...vals);
+  const pad  = 6;                 // vertical padding
+  const range = max - min || 1;   // guard against flat line → div/0
+
+  // Color: green if last > first, red if below
+  const firstV = vals[0], lastV = vals[vals.length - 1];
+  const up     = lastV >= firstV;
+  const stroke = up ? '#00ff9d' : '#ff3366';
+  const fill   = up ? 'rgba(0,255,157,.08)' : 'rgba(255,51,102,.08)';
+
+  // Grid
+  ctx.strokeStyle = 'rgba(26,40,64,.5)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i <= 3; i++) {
+    const y = (H - 2 * pad) * i / 4 + pad;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Line path
+  const x = i => (i / (vals.length - 1)) * W;
+  const y = v => H - pad - ((v - min) / range) * (H - 2 * pad);
+
+  // Fill area under line
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  vals.forEach((v, i) => { i === 0 ? ctx.lineTo(x(i), y(v)) : ctx.lineTo(x(i), y(v)); });
+  ctx.lineTo(W, H);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  vals.forEach((v, i) => { i === 0 ? ctx.moveTo(x(i), y(v)) : ctx.lineTo(x(i), y(v)); });
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Last-point dot
+  ctx.beginPath();
+  ctx.arc(x(vals.length - 1), y(lastV), 3, 0, Math.PI * 2);
+  ctx.fillStyle = stroke;
+  ctx.fill();
+
+  // Update delta badge in section header
+  const d = lastV - firstV;
+  const pct = firstV !== 0 ? (d / Math.abs(firstV)) * 100 : 0;
+  delta.textContent = `${d >= 0 ? '+' : ''}$${d.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)`;
+  delta.className = 'sec-n ' + (up ? 'pnl-up' : 'pnl-dn');
+}
+
+// Kick off first fetch ~2s after load (give server time to take its first snapshot)
+// then refresh every 60s — matches the server-side sampler cadence
+setTimeout(fetchPnlHistory, 2000);
+setInterval(fetchPnlHistory, 60000);
+
+// Redraw on resize so the chart fits the column width
+window.addEventListener('resize', drawPnlChart);
 
 // ── Agent Room ───────────────────────────────────────────────
 function openAgentRoom() {

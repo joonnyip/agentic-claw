@@ -7,6 +7,7 @@
 const { v4: uuidv4 } = require('uuid');
 const polymarket = require('../polymarket');
 const mirofish = require('../mirofish');
+const persistence = require('../persistence');  // v2.3 — SQLite persistence
 
 const agents = {};
 
@@ -227,6 +228,8 @@ class TradingAgent {
   }
 
   broadcastState() {
+    // v2.3 — persist agent state on every state change
+    persistence.saveAgent(this);
     if (global.broadcast) {
       global.broadcast({ type: 'AGENTS_UPDATE', payload: Object.values(agents).map(a => a.toJSON()) });
     }
@@ -265,6 +268,7 @@ function kill(id) {
   const agent = agents[id];
   if (!agent) return false;
   agent.stop();
+  persistence.deleteAgent(id);  // v2.3 — remove from persistent store
   delete agents[id];
   if (global.agenticLog) global.agenticLog('AGENT', 'MANAGER', `Killed: ${id.slice(0, 8)}`);
   if (global.broadcast) global.broadcast({ type: 'AGENTS_UPDATE', payload: Object.values(agents).map(a => a.toJSON()) });
@@ -275,8 +279,50 @@ function pause(id)  { const a = agents[id]; if (!a) return false; a.pause();  re
 function resume(id) { const a = agents[id]; if (!a) return false; a.resume(); return true; }
 function getAll()   { return Object.values(agents).map(a => a.toJSON()); }
 
-// Auto-spawn 2 starter agents with staggered timing
-setTimeout(() => spawn({ strategy: 'mirofish_signal', budget: 200 }), 3000);
-setTimeout(() => spawn({ strategy: 'momentum',        budget: 150 }), 4500);
+// v2.3 — Rehydrate agents from persistent storage on boot, OR auto-spawn
+// starters if the DB is empty. Both paths are deferred so persistence.init()
+// has time to run from index.js before we query.
+setTimeout(() => {
+  const saved = persistence.loadAgents();
+  if (saved.length) {
+    // Rehydrate each saved agent with its last-known state
+    saved.forEach((row, i) => {
+      setTimeout(() => {
+        const agent = new TradingAgent({
+          strategy: row.strategy,
+          name:     row.name,
+          budget:   row.budget,
+        });
+        // Restore persistent fields (override constructor defaults)
+        agent.id          = row.id;
+        agent.shortId     = row.shortId;
+        agent.remaining   = row.remaining;
+        agent.tradeCount  = row.tradeCount;
+        agent.winCount    = row.winCount;
+        agent.pnl         = row.pnl;
+        agent.lastAction  = row.lastAction || 'Rehydrated from disk';
+        agent.createdAt   = row.createdAt;
+        agents[agent.id]  = agent;
+        if (global.agenticLog) {
+          global.agenticLog('AGENT', 'MANAGER', `Rehydrated: ${agent.name} [${agent.shortId}] — $${agent.remaining.toFixed(2)} remaining, P&L ${agent.pnl.toFixed(4)}`);
+        }
+        // If previously RUNNING/PAUSED, restart (paused stays paused)
+        if (row.status === 'PAUSED') {
+          agent.status = 'PAUSED';
+          agent.broadcastState();
+        } else {
+          agent.start();
+        }
+      }, i * 600);  // stagger so logs are readable and ticks don't collide
+    });
+    if (global.agenticLog) {
+      global.agenticLog('AGENT', 'MANAGER', `Rehydrating ${saved.length} agents from disk`);
+    }
+  } else {
+    // First boot — spawn the two starter agents
+    setTimeout(() => spawn({ strategy: 'mirofish_signal', budget: 200 }), 500);
+    setTimeout(() => spawn({ strategy: 'momentum',        budget: 150 }), 2000);
+  }
+}, 1500);
 
 module.exports = { spawn, kill, pause, resume, getAll, agents, STRATEGIES };
